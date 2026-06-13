@@ -3,7 +3,19 @@ import 'package:runner/models/ssh_profile.dart';
 
 class ProfileFormScreen extends StatefulWidget {
   final SshProfile? profile;
-  const ProfileFormScreen({super.key, this.profile});
+  final String? existingPassword;
+  final String? existingPrivateKey;
+  final String? existingPassphrase;
+  final String? existingJumpPassword;
+
+  const ProfileFormScreen({
+    super.key,
+    this.profile,
+    this.existingPassword,
+    this.existingPrivateKey,
+    this.existingPassphrase,
+    this.existingJumpPassword,
+  });
 
   @override
   State<ProfileFormScreen> createState() => _ProfileFormScreenState();
@@ -26,6 +38,7 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
   bool _showPassword = false;
   bool _showJump = false;
   bool _showJumpPass = false;
+  bool _showKey = false;
 
   @override
   void initState() {
@@ -35,13 +48,13 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
     _hostCtrl = TextEditingController(text: p?.host ?? '');
     _portCtrl = TextEditingController(text: (p?.port ?? 22).toString());
     _userCtrl = TextEditingController(text: p?.username ?? 'root');
-    _passCtrl = TextEditingController(text: p?.password ?? '');
-    _keyCtrl = TextEditingController(text: p?.privateKey ?? '');
-    _phraseCtrl = TextEditingController(text: p?.passphrase ?? '');
+    _passCtrl = TextEditingController(text: widget.existingPassword ?? '');
+    _keyCtrl = TextEditingController(text: widget.existingPrivateKey ?? '');
+    _phraseCtrl = TextEditingController(text: widget.existingPassphrase ?? '');
     _jumpHostCtrl = TextEditingController(text: p?.jumpHost ?? '');
     _jumpPortCtrl = TextEditingController(text: (p?.jumpPort ?? 22).toString());
     _jumpUserCtrl = TextEditingController(text: p?.jumpUser ?? 'root');
-    _jumpPassCtrl = TextEditingController(text: p?.jumpPassword ?? '');
+    _jumpPassCtrl = TextEditingController(text: widget.existingJumpPassword ?? '');
     _authType = p?.authType ?? SshAuthType.password;
     _showJump = (p?.jumpHost ?? '').isNotEmpty;
   }
@@ -60,24 +73,24 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
 
   void _submit() {
     if (!_form.currentState!.validate()) return;
-
     final profile = SshProfile(
       id: widget.profile?.id,
       label: _labelCtrl.text,
       host: _hostCtrl.text,
-      port: int.parse(_portCtrl.text),
+      port: int.tryParse(_portCtrl.text) ?? 22,
       username: _userCtrl.text,
       authType: _authType,
-      password: _passCtrl.text,
-      privateKey: _keyCtrl.text,
-      passphrase: _phraseCtrl.text,
       jumpHost: _showJump ? _jumpHostCtrl.text : '',
       jumpPort: int.tryParse(_jumpPortCtrl.text) ?? 22,
       jumpUser: _jumpUserCtrl.text,
-      jumpPassword: _jumpPassCtrl.text,
     );
-
-    Navigator.pop(context, profile);
+    Navigator.pop(context, {
+      'profile': profile,
+      'password': _passCtrl.text,
+      'privateKey': _keyCtrl.text,
+      'passphrase': _phraseCtrl.text,
+      'jumpPassword': _jumpPassCtrl.text,
+    });
   }
 
   @override
@@ -90,33 +103,61 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            Text('Connection', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
             TextFormField(
               controller: _labelCtrl,
-              decoration: const InputDecoration(labelText: 'Label'),
+              decoration: const InputDecoration(
+                labelText: 'Label',
+                hintText: 'My Server',
+                prefixIcon: Icon(Icons.label_outline, size: 20),
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _hostCtrl,
-              decoration: const InputDecoration(labelText: 'Host'),
+              decoration: const InputDecoration(
+                labelText: 'Host',
+                hintText: 'example.com',
+                prefixIcon: Icon(Icons.dns_outlined, size: 20),
+              ),
               validator: (v) => v?.isEmpty == true ? 'Required' : null,
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _portCtrl,
-              decoration: const InputDecoration(labelText: 'Port'),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _userCtrl,
-              decoration: const InputDecoration(labelText: 'Username'),
-              validator: (v) => v?.isEmpty == true ? 'Required' : null,
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    controller: _portCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Port',
+                      prefixIcon: Icon(Icons.numbers, size: 20),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 3,
+                  child: TextFormField(
+                    controller: _userCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Username',
+                      prefixIcon: Icon(Icons.person_outline, size: 20),
+                    ),
+                    validator: (v) => v?.isEmpty == true ? 'Required' : null,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
+            Text('Authentication', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
             SegmentedButton<SshAuthType>(
               segments: const [
                 ButtonSegment(value: SshAuthType.password, label: Text('Password')),
-                ButtonSegment(value: SshAuthType.key, label: Text('Private Key')),
+                ButtonSegment(value: SshAuthType.key, label: Text('Key')),
               ],
               selected: {_authType},
               onSelectionChanged: (s) => setState(() => _authType = s.first),
@@ -127,7 +168,8 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
                 controller: _passCtrl,
                 obscureText: !_showPassword,
                 decoration: InputDecoration(
-                  labelText: 'Password',
+                  labelText: widget.profile != null ? 'Password (leave blank to keep)' : 'Password',
+                  prefixIcon: const Icon(Icons.lock_outline, size: 20),
                   suffixIcon: IconButton(
                     icon: Icon(_showPassword ? Icons.visibility_off : Icons.visibility),
                     onPressed: () => setState(() => _showPassword = !_showPassword),
@@ -137,14 +179,33 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
             else ...[
               TextFormField(
                 controller: _keyCtrl,
-                decoration: const InputDecoration(labelText: 'Private Key (PEM)'),
-                maxLines: 6,
+                decoration: const InputDecoration(
+                  labelText: 'Private Key (PEM)',
+                  prefixIcon: Icon(Icons.vpn_key_outlined, size: 20),
+                ),
+                maxLines: 4,
+                obscureText: !_showKey,
               ),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _phraseCtrl,
-                decoration: const InputDecoration(labelText: 'Passphrase'),
-                obscureText: true,
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _phraseCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Passphrase',
+                        prefixIcon: Icon(Icons.lock_outline, size: 20),
+                      ),
+                      obscureText: true,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: Icon(_showKey ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setState(() => _showKey = !_showKey),
+                    tooltip: 'Toggle key visibility',
+                  ),
+                ],
               ),
             ],
             const SizedBox(height: 16),
@@ -158,18 +219,35 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
               const SizedBox(height: 8),
               TextFormField(
                 controller: _jumpHostCtrl,
-                decoration: const InputDecoration(labelText: 'Jump Host'),
+                decoration: const InputDecoration(
+                  labelText: 'Jump Host',
+                  prefixIcon: Icon(Icons.alt_route, size: 20),
+                ),
               ),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _jumpPortCtrl,
-                decoration: const InputDecoration(labelText: 'Jump Port'),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _jumpUserCtrl,
-                decoration: const InputDecoration(labelText: 'Jump Username'),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _jumpPortCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Jump Port',
+                        prefixIcon: Icon(Icons.numbers, size: 20),
+                      ),
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _jumpUserCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Jump User',
+                        prefixIcon: Icon(Icons.person_outline, size: 20),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -177,6 +255,7 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
                 obscureText: !_showJumpPass,
                 decoration: InputDecoration(
                   labelText: 'Jump Password',
+                  prefixIcon: const Icon(Icons.lock_outline, size: 20),
                   suffixIcon: IconButton(
                     icon: Icon(_showJumpPass ? Icons.visibility_off : Icons.visibility),
                     onPressed: () => setState(() => _showJumpPass = !_showJumpPass),
@@ -185,7 +264,11 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
               ),
             ],
             const SizedBox(height: 24),
-            FilledButton(onPressed: _submit, child: Text(isEdit ? 'Save' : 'Add')),
+            FilledButton.icon(
+              onPressed: _submit,
+              icon: Icon(isEdit ? Icons.save : Icons.add),
+              label: Text(isEdit ? 'Save Changes' : 'Add Server'),
+            ),
           ],
         ),
       ),

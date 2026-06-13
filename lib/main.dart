@@ -6,11 +6,36 @@ import 'package:runner/theme/theme_controller.dart';
 final sessionManager = SessionManager();
 
 void main() {
-  runApp(const MyApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const RunnerApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class RunnerApp extends StatefulWidget {
+  const RunnerApp({super.key});
+
+  @override
+  State<RunnerApp> createState() => _RunnerAppState();
+}
+
+class _RunnerAppState extends State<RunnerApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      sessionManager.closeAllSessions();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

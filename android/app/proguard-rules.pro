@@ -1,10 +1,17 @@
-# Flutter
--keep class io.flutter.** { *; }
--keep class io.flutter.plugins.** { *; }
+# Flutter default
+-keep class io.flutter.app.** { *; }
+-keep class io.flutter.plugin.**  { *; }
+-keep class io.flutter.util.**  { *; }
+-keep class io.flutter.view.**  { *; }
+-keep class io.flutter.**  { *; }
+-keep class io.flutter.plugins.**  { *; }
 
-# dartssh3 (native dependencies)
--keep class pointycastle.** { *; }
--keep class pinenacl.** { *; }
+# dartssh3 - keep all SSH classes
+-keep class dartssh3.** { *; }
+-keep class org.bouncycastle.** { *; }
 
-# Play Core (missing class warnings)
--dontwarn com.google.android.play.core.**
+# xterm.dart
+-keep class xterm.** { *; }
+
+# flutter_secure_storage
+-keep class com.llfbandit.** { *; }

@@ -2,20 +2,39 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:dartssh3/dartssh3.dart';
+import 'package:flutter/services.dart';
+import 'package:xterm/xterm.dart';
+import 'package:runner/screens/settings_screen.dart';
 import 'package:runner/services/session_manager.dart';
 import 'package:runner/services/ssh_session.dart';
+import 'package:runner/theme/catppuccin.dart';
+import 'package:runner/widgets/terminal_keyboard_toolbar.dart';
 
-String _stripAnsi(String input) {
-  return input
-      .replaceAll('\r\n', '\n')
-      .replaceAll('\r', '')
-      .replaceAll(RegExp(r'\x1B\[[0-9;]*[a-zA-Z]'), '')
-      .replaceAll(RegExp(r'\x1B\].*?(\x1B\\|\x07)'), '')
-      .replaceAll(RegExp(r'\x1B[[\]()][0-9;]*'), '')
-      .replaceAll(RegExp(r'\x1B[PMX^_]'), '')
-      .replaceAll(RegExp(r'\x1B[0-9]+'), '');
-}
+const _catppuccinTheme = TerminalTheme(
+  cursor: Color(0xFFF5E0DC),
+  selection: Color(0xFF585B70),
+  foreground: Color(0xFFCDD6F4),
+  background: Color(0xFF1E1E2E),
+  black: Color(0xFF45475A),
+  red: Color(0xFFF38BA8),
+  green: Color(0xFFA6E3A1),
+  yellow: Color(0xFFF9E2AF),
+  blue: Color(0xFF89B4FA),
+  magenta: Color(0xFFCBA6F7),
+  cyan: Color(0xFF94E2D5),
+  white: Color(0xFFBAC2DE),
+  brightBlack: Color(0xFF585B70),
+  brightRed: Color(0xFFF38BA8),
+  brightGreen: Color(0xFFA6E3A1),
+  brightYellow: Color(0xFFF9E2AF),
+  brightBlue: Color(0xFF89B4FA),
+  brightMagenta: Color(0xFFCBA6F7),
+  brightCyan: Color(0xFF94E2D5),
+  brightWhite: Color(0xFFA6ADC8),
+  searchHitBackground: Color(0xFF585B70),
+  searchHitBackgroundCurrent: Color(0xFFF5E0DC),
+  searchHitForeground: Color(0xFF1E1E2E),
+);
 
 class TerminalScreen extends StatefulWidget {
   final SessionManager manager;
@@ -25,123 +44,158 @@ class TerminalScreen extends StatefulWidget {
   State<TerminalScreen> createState() => _TerminalScreenState();
 }
 
-class _TerminalScreenState extends State<TerminalScreen> {
-  final _scrollCtrl = ScrollController();
-  final _inputCtrl = TextEditingController();
-  final _focusNode = FocusNode();
+class _TerminalScreenState extends State<TerminalScreen> with WidgetsBindingObserver {
+  Terminal? _terminal;
+  late final TerminalController _controller;
   StreamSubscription? _stdoutSub;
-  bool _loading = true;
+  bool _showToolbar = true;
 
   SshSession? get _session => widget.manager.activeSession;
-  bool get _connected =>
-      _session != null && _session!.value == SshSessionState.connected;
 
   @override
   void initState() {
     super.initState();
+    _controller = TerminalController();
+    WidgetsBinding.instance.addObserver(this);
     widget.manager.addListener(_onSessionsChanged);
-    _startShell();
+    _initTerminal();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _stdoutSub?.cancel();
+    _terminal?.onOutput = null;
     widget.manager.removeListener(_onSessionsChanged);
-    _scrollCtrl.dispose();
-    _inputCtrl.dispose();
-    _focusNode.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _session?.writeToShell('\x1b[2J\x1b[H');
+    }
   }
 
   void _onSessionsChanged() {
     if (mounted) setState(() {});
   }
 
-  Future<void> _startShell() async {
+  void _initTerminal() {
+    _stdoutSub?.cancel();
+
     final session = _session;
-    if (session == null || session.value != SshSessionState.connected) {
-      _loading = false;
-      if (session?.error != null) session!.output.write('Error: ${session.error}');
-      setState(() {});
-      return;
-    }
+    if (session == null) return;
 
-    if (session.hasShell) {
-      _loading = false;
-      _listenShell(session);
-      setState(() {});
-      return;
-    }
+    _terminal = Terminal(
+      onOutput: (data) {
+        session.writeToShell(data);
+      },
+    );
 
-    try {
-      final shell = await session.startShell();
-      _loading = false;
-      _listenShell(session);
-    } catch (e) {
-      session.output.writeln('Failed to start shell: $e');
-      _loading = false;
-      setState(() {});
-    }
+    _pipeOutput();
   }
 
-  void _listenShell(SshSession session) {
-    if (session.shell == null) return;
+  void _pipeOutput() {
+    final session = _session;
+    if (session?.shell == null) return;
     _stdoutSub?.cancel();
-    _stdoutSub = session.shell!.stdout.listen(
-      (data) {
-        session.output.write(_stripAnsi(utf8.decode(data)));
-        setState(() {});
-        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollDown());
-      },
-      onError: (e) => session.output.writeln('Error: $e'),
-      onDone: () {
-        session.output.writeln('\nConnection closed.');
-        setState(() {});
-      },
-      cancelOnError: false,
+
+    _stdoutSub = session!.shell!.stdout.listen(
+      (data) => _terminal?.write(utf8.decode(data)),
+      onError: (e) => _terminal?.write('\r\nError: $e'),
+      onDone: () => _terminal?.write('\r\n\x1b[31mConnection closed.\x1b[0m'),
     );
   }
 
-  void _sendCommand(String text) {
-    final session = _session;
-    if (session?.shell == null) return;
-    session!.shell!.write(utf8.encode('$text\n'));
-    _inputCtrl.clear();
+  void _onToolbarInput(String text) {
+    if (text.isEmpty) return;
+    _session?.writeToShell(text);
   }
 
-  void _scrollDown() {
-    if (_scrollCtrl.hasClients) {
-      _scrollCtrl.animateTo(
-        _scrollCtrl.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 100),
-        curve: Curves.easeOut,
+  void _handleCopy() {
+    final selection = _controller.selection;
+    if (selection != null && _terminal != null) {
+      final text = _terminal!.buffer.getText(selection);
+      _controller.clearSelection();
+      Clipboard.setData(ClipboardData(text: text));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Copied'), duration: Duration(seconds: 1)),
       );
+    }
+  }
+
+  void _handlePaste() async {
+    final data = await Clipboard.getData('text/plain');
+    if (data?.text != null && data!.text!.isNotEmpty) {
+      _session?.writeToShell(data.text!);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final session = _session;
-    final terminalBg = const Color(0xFF1E1E2E);
-    final terminalFg = const Color(0xFFCDD6F4);
-    final promptColor = const Color(0xFFA6E3A1);
+    final status = session?.value;
+    final cats = Theme.of(context).extension<CatppuccinColors>()!;
+
+    Color statusColor;
+    String statusText;
+    IconData statusIcon;
+    switch (status) {
+      case SshSessionState.connecting:
+        statusColor = cats.yellow;
+        statusText = 'Connecting...';
+        statusIcon = Icons.sync;
+      case SshSessionState.connected:
+        statusColor = cats.green;
+        statusText = 'Connected';
+        statusIcon = Icons.cloud_done;
+      case SshSessionState.error:
+        statusColor = cats.red;
+        statusText = 'Error';
+        statusIcon = Icons.error_outline;
+      default:
+        statusColor = cats.subtext0;
+        statusText = 'Disconnected';
+        statusIcon = Icons.cloud_off;
+    }
 
     return Scaffold(
-      backgroundColor: terminalBg,
-      resizeToAvoidBottomInset: true,
+      backgroundColor: const Color(0xFF1E1E2E),
       appBar: AppBar(
         backgroundColor: const Color(0xFF181825),
-        foregroundColor: terminalFg,
+        foregroundColor: const Color(0xFFCDD6F4),
         elevation: 0,
-        title: Text(session?.profile.label ?? 'Terminal',
-            style: const TextStyle(fontSize: 14)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(session?.profile.label ?? 'Terminal',
+                style: const TextStyle(fontSize: 14)),
+            if (session != null)
+              Row(
+                children: [
+                  Icon(statusIcon, size: 10, color: statusColor),
+                  const SizedBox(width: 4),
+                  Text(statusText,
+                      style: TextStyle(fontSize: 10, color: statusColor)),
+                ],
+              ),
+          ],
+        ),
         actions: [
+          if (status == SshSessionState.connected)
+            IconButton(
+              icon: const Icon(Icons.refresh, size: 18),
+              tooltip: 'Reconnect',
+              onPressed: () => _session?.reconnect().then((_) => _initTerminal()),
+            ),
           if (widget.manager.sessions.length > 1)
             PopupMenuButton<int>(
               icon: const Icon(Icons.tab, size: 20),
-              onSelected: (i) async {
+              onSelected: (i) {
                 widget.manager.setActiveSession(i);
-                await _startShell();
+                _initTerminal();
+                setState(() {});
               },
               itemBuilder: (context) => [
                 for (var i = 0; i < widget.manager.sessions.length; i++)
@@ -155,94 +209,114 @@ class _TerminalScreenState extends State<TerminalScreen> {
               ],
             ),
           IconButton(
-            icon: const Icon(Icons.close, size: 20),
+            icon: const Icon(Icons.settings, size: 18),
+            tooltip: 'Settings',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
             onPressed: () => Navigator.pop(context),
           ),
         ],
       ),
-      body: AnimatedPadding(
-        duration: const Duration(milliseconds: 200),
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-        child: Column(
+      body: Column(
         children: [
           Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : GestureDetector(
-              onTap: () => _focusNode.requestFocus(),
-              child: Container(
-                color: terminalBg,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: SingleChildScrollView(
-                  controller: _scrollCtrl,
-                  child: SelectableText(
-                    (session?.output ?? StringBuffer()).toString(),
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 13,
-                      color: terminalFg,
-                      height: 1.5,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          if (!_connected)
-            Container(
-              width: double.infinity,
-              color: const Color(0xFF45475A),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: const Text('Connection closed',
-                  style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 13,
-                      color: Color(0xFFF38BA8))),
-            ),
-          Container(
-            color: const Color(0xFF181825),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Text('\$ ',
-                    style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 13,
-                        color: promptColor)),
-                Expanded(
-                  child: TextField(
-                    controller: _inputCtrl,
-                    focusNode: _focusNode,
-                    enabled: _connected,
+            child: _terminal != null
+                ? TerminalView(
+                    _terminal!,
+                    theme: _catppuccinTheme,
+                    controller: _controller,
                     autofocus: true,
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 13,
-                      color: terminalFg,
-                    ),
-                    cursorColor: promptColor,
-                    cursorWidth: 8,
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(vertical: 8),
-                      hintText: 'Type a command...',
-                      hintStyle: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 13,
-                        color: Color(0xFF6C7086),
-                      ),
-                    ),
-                    onSubmitted: _sendCommand,
-                  ),
-                ),
-              ],
-            ),
+                    keyboardType: TextInputType.text,
+                  )
+                : _buildStatusView(session, cats),
           ),
+          if (_showToolbar)
+            TerminalKeyboardToolbar(
+              onInput: _onToolbarInput,
+              onCopy: _handleCopy,
+              onPaste: _handlePaste,
+              onDismiss: () => setState(() => _showToolbar = false),
+            ),
         ],
       ),
-        ),
     );
+  }
+
+  Widget _buildStatusView(SshSession? session, CatppuccinColors cats) {
+    if (session == null) {
+      return const Center(
+        child: Text('No active session', style: TextStyle(color: Color(0xFF585B70))),
+      );
+    }
+    switch (session.value) {
+      case SshSessionState.connecting:
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: cats.yellow),
+              const SizedBox(height: 16),
+              Text('Connecting to ${session.profile.label}...',
+                  style: TextStyle(color: cats.subtext0)),
+            ],
+          ),
+        );
+      case SshSessionState.error:
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: cats.red),
+              const SizedBox(height: 16),
+              Text('Connection failed', style: TextStyle(color: cats.red, fontSize: 16)),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(session.error ?? 'Unknown error',
+                    style: TextStyle(color: cats.subtext0, fontSize: 12),
+                    textAlign: TextAlign.center),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () async {
+                  await session.reconnect();
+                  if (mounted) _initTerminal();
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        );
+      case SshSessionState.disconnected:
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.cloud_off, size: 48, color: cats.subtext0),
+              const SizedBox(height: 16),
+              Text('Disconnected', style: TextStyle(color: cats.subtext0, fontSize: 16)),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () async {
+                  final ok = await widget.manager.connectProfile(session.profile.id);
+                  if (ok && mounted) _initTerminal();
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Reconnect'),
+              ),
+            ],
+          ),
+        );
+      default:
+        return const Center(child: CircularProgressIndicator());
+    }
   }
 }

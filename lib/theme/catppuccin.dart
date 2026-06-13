@@ -168,7 +168,7 @@ ThemeData buildCatppuccinTheme(CatppuccinFlavor flavor) {
 }
 
 /// Access extra Catppuccin-only colors not covered by ColorScheme,
-/// e.g. Theme.of(context).extension<CatppuccinColors>()!.green
+/// e.g. `Theme.of(context).extension<CatppuccinColors>()!.green`
 class CatppuccinColors extends ThemeExtension<CatppuccinColors> {
   final CatppuccinPalette palette;
   const CatppuccinColors(this.palette);

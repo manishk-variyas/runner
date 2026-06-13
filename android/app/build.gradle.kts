@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.runner"
+    namespace = "app.runner.ssh"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,7 +15,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.runner"
+        applicationId = "app.runner.ssh"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -24,6 +24,9 @@ android {
 
     buildTypes {
         release {
+            // To sign releases properly, create android/key.properties with:
+            // storeFile, storePassword, keyAlias, keyPassword
+            // Then uncomment the signing config block in android/app/build.gradle.kts
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
