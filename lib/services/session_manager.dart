@@ -51,7 +51,7 @@ class SessionManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> connectProfile(String profileId) async {
+  Future<bool> connectProfile(String profileId) async {
     final profile = _profiles.firstWhere((p) => p.id == profileId);
     final existing = _sessions.indexWhere((s) => s.profile.id == profileId);
 
@@ -70,6 +70,8 @@ class SessionManager extends ChangeNotifier {
     if (session.value == SshSessionState.disconnected) {
       await session.connect();
     }
+
+    return session.value == SshSessionState.connected;
   }
 
   void setActiveSession(int index) {

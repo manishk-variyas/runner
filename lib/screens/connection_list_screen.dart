@@ -14,6 +14,8 @@ class ConnectionListScreen extends StatefulWidget {
 }
 
 class _ConnectionListScreenState extends State<ConnectionListScreen> {
+  String? _connectingId;
+
   @override
   void initState() {
     super.initState();
@@ -30,8 +32,19 @@ class _ConnectionListScreenState extends State<ConnectionListScreen> {
   void _onChanged() => setState(() {});
 
   Future<void> _connect(SshProfile profile) async {
-    await widget.manager.connectProfile(profile.id);
+    setState(() => _connectingId = profile.id);
+    final success = await widget.manager.connectProfile(profile.id);
+    _connectingId = null;
     if (!mounted) return;
+    if (!success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to connect to ${profile.label}'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -71,17 +84,17 @@ class _ConnectionListScreenState extends State<ConnectionListScreen> {
                   FilledButton.icon(
                     onPressed: () {
                       final profile = SshProfile(
-                        label: 'Local Test VM',
-                        host: '10.0.2.2',
-                        port: 2222,
+                        label: 'Test VM (bore)',
+                        host: 'bore.pub',
+                        port: 42493,
                         username: 'root',
-                        password: 'test123',
+                        password: 'testpass123',
                       );
                       widget.manager.addProfile(profile);
                       _connect(profile);
                     },
                     icon: const Icon(Icons.cloud),
-                    label: const Text('Connect to Local Test VM'),
+                    label: const Text('Connect to Test VM'),
                   ),
                 ],
               ),
@@ -97,17 +110,25 @@ class _ConnectionListScreenState extends State<ConnectionListScreen> {
                     );
                 final status = session?.value;
 
+                final isConnecting = _connectingId == p.id;
+
                 return Card(
                   child: ListTile(
-                    leading: CircleAvatar(
-                      child: Icon(
-                        status == null
-                            ? Icons.cloud_outlined
-                            : status == SshSessionState.connected
-                                ? Icons.cloud_done
-                                : Icons.cloud_off,
-                      ),
-                    ),
+                    leading: isConnecting
+                        ? const SizedBox(
+                            width: 40,
+                            height: 40,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : CircleAvatar(
+                            child: Icon(
+                              status == null
+                                  ? Icons.cloud_outlined
+                                  : status == SshSessionState.connected
+                                      ? Icons.cloud_done
+                                      : Icons.cloud_off,
+                            ),
+                          ),
                     title: Text(p.label.isNotEmpty ? p.label : p.host),
                     subtitle: Text('${p.username}@${p.host}:${p.port}'),
                     trailing: PopupMenuButton(

@@ -18,7 +18,14 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
   late final TextEditingController _passCtrl;
   late final TextEditingController _keyCtrl;
   late final TextEditingController _phraseCtrl;
+  late final TextEditingController _jumpHostCtrl;
+  late final TextEditingController _jumpPortCtrl;
+  late final TextEditingController _jumpUserCtrl;
+  late final TextEditingController _jumpPassCtrl;
   late SshAuthType _authType;
+  bool _showPassword = false;
+  bool _showJump = false;
+  bool _showJumpPass = false;
 
   @override
   void initState() {
@@ -31,18 +38,23 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
     _passCtrl = TextEditingController(text: p?.password ?? '');
     _keyCtrl = TextEditingController(text: p?.privateKey ?? '');
     _phraseCtrl = TextEditingController(text: p?.passphrase ?? '');
+    _jumpHostCtrl = TextEditingController(text: p?.jumpHost ?? '');
+    _jumpPortCtrl = TextEditingController(text: (p?.jumpPort ?? 22).toString());
+    _jumpUserCtrl = TextEditingController(text: p?.jumpUser ?? 'root');
+    _jumpPassCtrl = TextEditingController(text: p?.jumpPassword ?? '');
     _authType = p?.authType ?? SshAuthType.password;
+    _showJump = (p?.jumpHost ?? '').isNotEmpty;
   }
 
   @override
   void dispose() {
-    _labelCtrl.dispose();
-    _hostCtrl.dispose();
-    _portCtrl.dispose();
-    _userCtrl.dispose();
-    _passCtrl.dispose();
-    _keyCtrl.dispose();
-    _phraseCtrl.dispose();
+    for (final c in [
+      _labelCtrl, _hostCtrl, _portCtrl, _userCtrl, _passCtrl,
+      _keyCtrl, _phraseCtrl, _jumpHostCtrl, _jumpPortCtrl,
+      _jumpUserCtrl, _jumpPassCtrl,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -59,6 +71,10 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
       password: _passCtrl.text,
       privateKey: _keyCtrl.text,
       passphrase: _phraseCtrl.text,
+      jumpHost: _showJump ? _jumpHostCtrl.text : '',
+      jumpPort: int.tryParse(_jumpPortCtrl.text) ?? 22,
+      jumpUser: _jumpUserCtrl.text,
+      jumpPassword: _jumpPassCtrl.text,
     );
 
     Navigator.pop(context, profile);
@@ -109,8 +125,14 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
             if (_authType == SshAuthType.password)
               TextFormField(
                 controller: _passCtrl,
-                decoration: const InputDecoration(labelText: 'Password'),
-                obscureText: true,
+                obscureText: !_showPassword,
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  suffixIcon: IconButton(
+                    icon: Icon(_showPassword ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setState(() => _showPassword = !_showPassword),
+                  ),
+                ),
               )
             else ...[
               TextFormField(
@@ -123,6 +145,43 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
                 controller: _phraseCtrl,
                 decoration: const InputDecoration(labelText: 'Passphrase'),
                 obscureText: true,
+              ),
+            ],
+            const SizedBox(height: 16),
+            SwitchListTile(
+              title: const Text('Jump Host / Proxy'),
+              subtitle: const Text('Connect through a bastion server'),
+              value: _showJump,
+              onChanged: (v) => setState(() => _showJump = v),
+            ),
+            if (_showJump) ...[
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _jumpHostCtrl,
+                decoration: const InputDecoration(labelText: 'Jump Host'),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _jumpPortCtrl,
+                decoration: const InputDecoration(labelText: 'Jump Port'),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _jumpUserCtrl,
+                decoration: const InputDecoration(labelText: 'Jump Username'),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _jumpPassCtrl,
+                obscureText: !_showJumpPass,
+                decoration: InputDecoration(
+                  labelText: 'Jump Password',
+                  suffixIcon: IconButton(
+                    icon: Icon(_showJumpPass ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setState(() => _showJumpPass = !_showJumpPass),
+                  ),
+                ),
               ),
             ],
             const SizedBox(height: 24),

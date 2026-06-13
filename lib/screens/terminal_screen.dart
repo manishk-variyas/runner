@@ -26,13 +26,15 @@ class TerminalScreen extends StatefulWidget {
 }
 
 class _TerminalScreenState extends State<TerminalScreen> {
-  final _output = StringBuffer();
   final _scrollCtrl = ScrollController();
   final _inputCtrl = TextEditingController();
   final _focusNode = FocusNode();
-  SSHSession? _shell;
   StreamSubscription? _stdoutSub;
-  bool _connected = true;
+  bool _loading = true;
+
+  SshSession? get _session => widget.manager.activeSession;
+  bool get _connected =>
+      _session != null && _session!.value == SshSessionState.connected;
 
   @override
   void initState() {
@@ -44,7 +46,6 @@ class _TerminalScreenState extends State<TerminalScreen> {
   @override
   void dispose() {
     _stdoutSub?.cancel();
-    _shell?.close();
     widget.manager.removeListener(_onSessionsChanged);
     _scrollCtrl.dispose();
     _inputCtrl.dispose();
@@ -52,38 +53,59 @@ class _TerminalScreenState extends State<TerminalScreen> {
     super.dispose();
   }
 
-  void _onSessionsChanged() => setState(() {});
+  void _onSessionsChanged() {
+    if (mounted) setState(() {});
+  }
 
   Future<void> _startShell() async {
-    final session = widget.manager.activeSession;
-    if (session == null || session.value != SshSessionState.connected) return;
+    final session = _session;
+    if (session == null || session.value != SshSessionState.connected) {
+      _loading = false;
+      if (session?.error != null) session!.output.write('Error: ${session.error}');
+      setState(() {});
+      return;
+    }
+
+    if (session.hasShell) {
+      _loading = false;
+      _listenShell(session);
+      setState(() {});
+      return;
+    }
 
     try {
-      _shell = await session.shell();
-      _stdoutSub = _shell!.stdout.listen(
-        (data) {
-          _output.write(_stripAnsi(utf8.decode(data)));
-          setState(() {});
-          WidgetsBinding.instance.addPostFrameCallback((_) => _scrollDown());
-        },
-        onError: (e) => _output.writeln('Error: $e'),
-        onDone: () {
-          _output.writeln('\nConnection closed.');
-          _connected = false;
-          setState(() {});
-        },
-        cancelOnError: false,
-      );
+      final shell = await session.startShell();
+      _loading = false;
+      _listenShell(session);
     } catch (e) {
-      _output.writeln('Failed to start shell: $e');
-      _connected = false;
+      session.output.writeln('Failed to start shell: $e');
+      _loading = false;
       setState(() {});
     }
   }
 
+  void _listenShell(SshSession session) {
+    if (session.shell == null) return;
+    _stdoutSub?.cancel();
+    _stdoutSub = session.shell!.stdout.listen(
+      (data) {
+        session.output.write(_stripAnsi(utf8.decode(data)));
+        setState(() {});
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollDown());
+      },
+      onError: (e) => session.output.writeln('Error: $e'),
+      onDone: () {
+        session.output.writeln('\nConnection closed.');
+        setState(() {});
+      },
+      cancelOnError: false,
+    );
+  }
+
   void _sendCommand(String text) {
-    if (_shell == null || !_connected) return;
-    _shell!.write(utf8.encode('$text\n'));
+    final session = _session;
+    if (session?.shell == null) return;
+    session!.shell!.write(utf8.encode('$text\n'));
     _inputCtrl.clear();
   }
 
@@ -99,13 +121,14 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final session = widget.manager.activeSession;
+    final session = _session;
     final terminalBg = const Color(0xFF1E1E2E);
     final terminalFg = const Color(0xFFCDD6F4);
     final promptColor = const Color(0xFFA6E3A1);
 
     return Scaffold(
       backgroundColor: terminalBg,
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         backgroundColor: const Color(0xFF181825),
         foregroundColor: terminalFg,
@@ -133,17 +156,19 @@ class _TerminalScreenState extends State<TerminalScreen> {
             ),
           IconButton(
             icon: const Icon(Icons.close, size: 20),
-            onPressed: () {
-              widget.manager.closeSession(widget.manager.activeIndex);
-              Navigator.pop(context);
-            },
+            onPressed: () => Navigator.pop(context),
           ),
         ],
       ),
-      body: Column(
+      body: AnimatedPadding(
+        duration: const Duration(milliseconds: 200),
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Column(
         children: [
           Expanded(
-            child: GestureDetector(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : GestureDetector(
               onTap: () => _focusNode.requestFocus(),
               child: Container(
                 color: terminalBg,
@@ -151,7 +176,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
                 child: SingleChildScrollView(
                   controller: _scrollCtrl,
                   child: SelectableText(
-                    _output.toString(),
+                    (session?.output ?? StringBuffer()).toString(),
                     style: TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 13,
@@ -217,6 +242,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
           ),
         ],
       ),
+        ),
     );
   }
 }

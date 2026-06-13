@@ -12,6 +12,10 @@ class SshProfile {
   String password;
   String privateKey;
   String passphrase;
+  String jumpHost;
+  int jumpPort;
+  String jumpUser;
+  String jumpPassword;
 
   SshProfile({
     String? id,
@@ -23,6 +27,10 @@ class SshProfile {
     this.password = '',
     this.privateKey = '',
     this.passphrase = '',
+    this.jumpHost = '',
+    this.jumpPort = 22,
+    this.jumpUser = 'root',
+    this.jumpPassword = '',
   }) : id = id ?? const Uuid().v4();
 
   Map<String, dynamic> toJson() => {
@@ -35,6 +43,10 @@ class SshProfile {
         'password': password,
         'privateKey': privateKey,
         'passphrase': passphrase,
+        'jumpHost': jumpHost,
+        'jumpPort': jumpPort,
+        'jumpUser': jumpUser,
+        'jumpPassword': jumpPassword,
       };
 
   factory SshProfile.fromJson(Map<String, dynamic> json) => SshProfile(
@@ -50,5 +62,9 @@ class SshProfile {
         password: json['password'] as String? ?? '',
         privateKey: json['privateKey'] as String? ?? '',
         passphrase: json['passphrase'] as String? ?? '',
+        jumpHost: json['jumpHost'] as String? ?? '',
+        jumpPort: json['jumpPort'] as int? ?? 22,
+        jumpUser: json['jumpUser'] as String? ?? 'root',
+        jumpPassword: json['jumpPassword'] as String? ?? '',
       );
 }
