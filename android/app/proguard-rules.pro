@@ -15,3 +15,7 @@
 
 # flutter_secure_storage
 -keep class com.llfbandit.** { *; }
+
+# Play Core (may be pulled in transitively)
+-dontwarn com.google.android.play.core.**
+-keep class com.google.android.play.core.** { *; }
